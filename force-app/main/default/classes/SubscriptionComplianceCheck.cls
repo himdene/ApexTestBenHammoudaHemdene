@@ -30,15 +30,9 @@ global class SubscriptionComplianceCheck implements Database.Batchable<sObject> 
                 //enlever les DML opérations dans les boucles
                if (sub.ComplianceProcess__c == Constants.IMMO_NEUF) {
                     subsImmoList.add(sub);
-                    if(sub.SBQQ__RequiredById__c != null){
-                        parentIds.add(sub.SBQQ__RequiredById__c);
-                    }
                 }
                 if(sub.ComplianceProcess__c == Constants.PUB){
                     subsPubList.add(sub);
-                    if(sub.SBQQ__RequiredById__c != null){
-                        parentIds.add(sub.SBQQ__RequiredById__c);
-                    }
                 }
             }
             if(!subsImmoList.isEmpty()){
