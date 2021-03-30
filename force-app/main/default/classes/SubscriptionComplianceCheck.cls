@@ -1,57 +1,111 @@
+/* Modifications faites : 
+start() : Changer les fields de lal SOQL query pour que la query soit plus optimale
+execute() : Enlever les Opérations DML des boucles
+setParentConforme() : Changing parameters to bulkify the code so it accepts a list 
+setConformiteImmoNeuf() : Changing parameters to bulkify the code and also changing the retrun type to void
+setConformitePub() : implémentation d'une méthode selon le nouveau besoin*
+finish(): ajouter les logs pour enregistrer les success
+Création d'une classe Constants pour storer tous les constants dont on aura besoin
+Code écrit par : Hemdene Ben Hammouda*/
 global class SubscriptionComplianceCheck implements Database.Batchable<sObject> {
-    private static final String ELEMENTS_MANQUANTS = 'Éléments manquants';
-    private static final String IMMO_NEUF = 'Conformité Immo neuf';
+    // move to Constants class
     
-    global List<SBQQ__Subscription__c> start(Database.BatchableContext cnx) { 
-         return [SELECT Id, CompanyAddressCity__c, OrderNumber__c, CompanyAddressCountry__c, CompanyPhone__c, ContactGender__c, ContactLastName__c, 
-                 ContactFirstName__c, Companyindustry__c, CompanyName__c, PrintVolume__c, BroadcastSoftware__c, PromoterDescription__c, SBQQ__RequiredById__c,
-                 FlowType__c, BroadcastPartner__c, PostalCode__c, Souscription_Conforme__c, ComplianceProcess__c, Status__c, AccessStoreState__c, 
-                 ProductWorkflow__c, AccessUserId__c, KilometerRadius__c, AccessStoreId__c, CompanyAddressStreet__c, CompanyAddressZipcode__c, LeadPhone__c,
-                 ContractEmail__c, CompanySegment__c, CompanySiret__c FROM SBQQ__Subscription__c WHERE Status__c = :ELEMENTS_MANQUANTS
+    global List<SBQQ__Subscription__c> start(Database.BatchableContext bc) { 
+         // enlever les champs non nécessaires pour que la SOQL query soit plus rapide
+         return [SELECT Id, CompanyAddressCity__c, CompanyPhone__c, ContactGender__c, ContactLastName__c, 
+                 ContactFirstName__c, CompanyName__c, PromoterDescription__c, SBQQ__RequiredById__c,
+                 FlowType__c, Souscription_Conforme__c, ComplianceProcess__c, Status__c, EffectiveEndDate__c,
+                 ProductWorkflow__c, CompanyAddressStreet__c, CompanyAddressZipcode__c, LeadPhone__c,
+                 ContractEmail__c, CompanySiret__c FROM SBQQ__Subscription__c WHERE Status__c = :Constants.ELEMENTS_MANQUANTS
                  AND Souscription_Conforme__c = false];
     }
     
-    global void execute(Database.BatchableContext cnx, List<SBQQ__Subscription__c> scope) {
+    global void execute(Database.BatchableContext bc, List<SBQQ__Subscription__c> scope) {
         try {
-            List<SBQQ__Subscription__c> subs = new List<SBQQ__Subscription__c>();
+            Set<String> parentIds = new Set<String>();
+            List<SBQQ__Subscription__c> subsImmoList = new List<SBQQ__Subscription__c>();
+            List<SBQQ__Subscription__c> subsPubList = new List<SBQQ__Subscription__c>();
+            List<SBQQ__Subscription__c> subsConformeList = new List<SBQQ__Subscription__c>();
             for(SBQQ__Subscription__c sub : scope) {
-               if (sub.ComplianceProcess__c == IMMO_NEUF) {
-                    SBQQ__Subscription__c subImmo = setConformiteImmoNeuf(sub);
-                    if (subImmo != null) {
-                        if (sub.SBQQ__RequiredById__c != null) {
-                           setParentConforme(sub.SBQQ__RequiredById__c);
-                       }
+                //enlever les DML opérations dans les boucles
+               if (sub.ComplianceProcess__c == Constants.IMMO_NEUF) {
+                    subsImmoList.add(sub);
+                    if(sub.SBQQ__RequiredById__c != null){
+                        parentIds.add(sub.SBQQ__RequiredById__c);
                     }
                 }
+                if(sub.ComplianceProcess__c == Constants.PUB){
+                    subsPubList.add(sub);
+                    if(sub.SBQQ__RequiredById__c != null){
+                        parentIds.add(sub.SBQQ__RequiredById__c);
+                    }
+                }
+            }
+            if(!subsImmoList.isEmpty()){
+                setConformiteImmoNeuf(subsImmoList);
+                subsConformeList.addAll(subsImmoList);
+            }
+            if(!subsPubList.isEmpty()){
+                setConformitePub(subsPubList);
+                subsConformeList.addAll(subsPubList);
+            }
+            if(!subsConformeList.isEmpty()){
+                for(SBQQ__Subscription__c sub : subsConformeList){
+                    if(sub.SBQQ__RequiredById__c != null && sub.Souscription_Conforme__c){
+                        parentIds.add(sub.SBQQ__RequiredById__c);
+                    }  
+                }
+            } 
+            if(!parentIds.isEmpty()){
+                setParentConforme(parentIds);
             }
         } catch(Exception e) {
             Logs.error('SubscriptionComplianceCheck','Batch Compliance Check', e);
         }
     }
-    
-    global void finish(Database.BatchableContext cnx) {
+    // ajouter les méthodes info et trace pour capturer le success
+    global void finish(Database.BatchableContext bc) {
+        Logs.info('SubscriptionComplianceCheck','execute','Successfully Update Subscriptions');
+        Logs.trace('SubscriptionComplianceCheck','execute','Successfully Update Subscriptions');
     }
     
-
-    private SBQQ__Subscription__c setConformiteImmoNeuf(SBQQ__Subscription__c sub) {
-        if(sub.PromoterDescription__c != null && sub.FlowType__c != null && sub.ProductWorkflow__c != null
-          && sub.ContractEmail__c != null && sub.CompanySiret__c != null && sub.CompanyName__c != null
-          && sub.CompanyAddressStreet__c != null && sub.CompanyAddressZipcode__c != null && sub.CompanyAddressCity__c != null
-          && sub.CompanyPhone__c != null && sub.ContactGender__c != null && sub.ContactFirstName__c != null 
-          && sub.ContactLastName__c != null && sub.LeadPhone__c != null) {
+    private void setConformitePub(List<SBQQ__Subscription__c> subsList){
+        for(SBQQ__Subscription__c sub : subsList){
+            if(sub.EffectiveEndDate__c > Date.Today()){
             sub.Souscription_Conforme__c = true;
-            update sub;
-            return sub;
+            }
+            else{
+                sub.MissingInformations__c= Constants.MISSING_INFO;   
+            }
         }
-        return null;
+        Update subsList;
     }
-    
-    private void setParentConforme(String parentId) {
-        SBQQ__Subscription__c[] parentSub = [SELECT Id, Souscription_Conforme__c FROM SBQQ__Subscription__c WHERE Status__c = :ELEMENTS_MANQUANTS 
-                                           AND Souscription_Conforme__c = false AND Id = :parentId];
+    //changer le type en void pour éviter de faire des opération DML dans les boucles
+    private void setConformiteImmoNeuf(List<SBQQ__Subscription__c> subsList) {
+        for(SBQQ__Subscription__c sub : subsList){
+            if(sub.PromoterDescription__c != null && sub.FlowType__c != null && sub.ProductWorkflow__c != null
+            && sub.ContractEmail__c != null && sub.CompanySiret__c != null && sub.CompanyName__c != null
+            && sub.CompanyAddressStreet__c != null && sub.CompanyAddressZipcode__c != null && sub.CompanyAddressCity__c != null
+            && sub.CompanyPhone__c != null && sub.ContactGender__c != null && sub.ContactFirstName__c != null 
+            && sub.ContactLastName__c != null && sub.LeadPhone__c != null) {
+                sub.Souscription_Conforme__c = true;
+            }
+            else{
+                sub.MissingInformations__c= Constants.MISSING_INFO;   
+            }
+        }
+        Update subsList;
+    }
+    //changer le paramètre pour recevoir une liste pour faire un bulk update
+    private void setParentConforme(Set<String> parentIds) {
+        List<SBQQ__Subscription__c> parentSub = [SELECT Id, Souscription_Conforme__c FROM SBQQ__Subscription__c WHERE Status__c = :Constants.ELEMENTS_MANQUANTS 
+                                           AND Souscription_Conforme__c = false AND Id IN :parentIds];
         if (parentSub.size() > 0) {
-            parentSub[0].Souscription_Conforme__c = true;
-            UPDATE parentSub[0];
+            for(SBQQ__Subscription__c sub :parentSub ){
+                sub.Souscription_Conforme__c = true;
+            }
+            
+            UPDATE parentSub;
         }
     }
 }
